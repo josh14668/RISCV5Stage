@@ -1,0 +1,5 @@
+Performance of Single Stage: 
+#Cycles -> 5
+#Instructions -> 8
+CPI -> 0.625
+IPC -> 1.6
