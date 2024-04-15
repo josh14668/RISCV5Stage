@@ -512,7 +512,37 @@ class Core {
             return SpecificInstruction::SW;
         }
 
-      
+        SpecificInstruction ID_Stage(bitset<32> instruction)
+        {
+            SpecificInstruction whatInst;
+
+            bitset<32> opcodeMask = 0b1111111;
+
+            bitset<7> opcode((instruction & opcodeMask).to_ulong()); // Pulls opcode last 7 bits
+
+            cout<< opcode << endl;
+            
+            switch(opcode.to_ulong()){
+
+                case 0x33: return decodeRType(instruction); //R-Type 
+
+                case 0x3: return decodeIType(instruction,opcode); //I type LW
+
+                case 0x13: return decodeIType(instruction,opcode); //I-Type
+
+                case 0x6F: return decodeJType(instruction); //J-Type
+
+                case 0x63: return decodeBType(instruction);//B-Type execution happens in ID stage
+        
+                case 0x23: return decodeSType(instruction); //S-Type
+
+                default: return NOP;
+               
+            }
+            
+           
+            
+        } 
 };
 
 
@@ -662,9 +692,6 @@ class SingleStageCore : public Core {
                 state.IF.PC = state.IF.PC.to_ulong() - 4;
                 totalInstruction +=1;
 
-        
-               
-
             }
             ///////////////////////////////////////////////////////////////
  
@@ -812,6 +839,7 @@ class FiveStageCore : public Core{
 		FiveStageCore(string ioDir, InsMem &imem, DataMem *dmem): Core(ioDir + "\\FS_", imem, dmem), opFilePath(ioDir + "\\StateResult_FS.txt") {}
 
 		void step() {
+            cout<<"START 5 Stage"<<endl;
 			/* Your implementation */
 			/* --------------------- WB stage --------------------- */
 			
@@ -826,10 +854,14 @@ class FiveStageCore : public Core{
 			
 			
 			/* --------------------- ID stage --------------------- */
-			
-			
-			
+            bitset<32> instruction=bitset<32> (0);
+            instruction= ext_imem.readInstr(state.IF.PC);
+
+			ID_Stage(instruction);
+	
 			/* --------------------- IF stage --------------------- */
+         
+            state.IF.PC=state.IF.PC.to_ulong()+4;
 			
 			
 			halted = true;
@@ -913,27 +945,28 @@ int main(int argc, char* argv[]) {
     }
 
     InsMem imem = InsMem("Imem", ioDir);
-    DataMem dmem_ss = DataMem("SS", ioDir);
+  //  DataMem dmem_ss = DataMem("SS", ioDir);
 	DataMem dmem_fs = DataMem("FS", ioDir);
 
-	SingleStageCore SSCore(ioDir, imem, &dmem_ss);
+	//SingleStageCore SSCore(ioDir, imem, &dmem_ss);
 	FiveStageCore FSCore(ioDir, imem, &dmem_fs);
 	
 
     while (1) {
-		if (!SSCore.halted)
-			SSCore.step();
+		// if (!SSCore.halted)
+		// 	SSCore.step();
 
-		// if (!FSCore.halted)
-		// 	FSCore.step();
+		if (!FSCore.halted)
+			FSCore.step();
 
-		if (SSCore.halted) //&& FSCore.halted)
+		if (FSCore.halted) //&& FSCore.halted)
 			break;
     }
 
 
     // dump SS and FS data mem.
-    SSCore.ext_dmem->outputDataMem();
+    //SSCore.ext_dmem->outputDataMem();
+    FSCore.ext_dmem->outputDataMem();
     
 
 	// // dump SS and FS data mem.
