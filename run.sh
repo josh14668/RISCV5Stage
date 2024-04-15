@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Compile test.cpp
-g++ -o fsCore fsCore.cpp
+g++ -w -o fsCore fsCore.cpp
 
 # Check if compilation was successful
 if [ $? -eq 0 ]; then
