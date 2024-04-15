@@ -274,6 +274,7 @@ class Core {
             BNE,
 
             JAL,  // J-type
+            HALT,
             NOP,  // Not an operation
         };
         
@@ -536,6 +537,8 @@ class Core {
         
                 case 0x23: return decodeSType(instruction); //S-Type
 
+                case 0x7F: return HALT;
+
                 default: return NOP;
                
             }
@@ -543,6 +546,26 @@ class Core {
            
             
         } 
+
+        void IF_Stage()
+        {
+            cout<<"IF_Stage"<<endl;
+
+            if(ext_imem.readInstr(state.IF.PC) == 0x7F)
+            {
+                state.IF.nop = true;
+                state.EX.nop = true;
+                state.ID.nop = true;
+                state.MEM.nop = true;
+                state.WB.nop = true;
+                halted = true;
+            }
+
+            state.IF.PC = state.IF.PC.to_ulong() + 4;
+
+
+        }
+
 };
 
 
@@ -565,6 +588,7 @@ const char* instMap[]  = {
     "BNE",  // Corresponds to SpecificInstruction::BNE
 
     "JAL",  // Corresponds to SpecificInstruction::JAL
+    "HALT",
     "NOP"   // Corresponds to SpecificInstruction::NOP
     };
 
@@ -839,6 +863,7 @@ class FiveStageCore : public Core{
 		FiveStageCore(string ioDir, InsMem &imem, DataMem *dmem): Core(ioDir + "\\FS_", imem, dmem), opFilePath(ioDir + "\\StateResult_FS.txt") {}
 
 		void step() {
+            SpecificInstruction current_instruction;
             cout<<"START 5 Stage"<<endl;
 			/* Your implementation */
 			/* --------------------- WB stage --------------------- */
@@ -857,22 +882,24 @@ class FiveStageCore : public Core{
             bitset<32> instruction=bitset<32> (0);
             instruction= ext_imem.readInstr(state.IF.PC);
 
-			ID_Stage(instruction);
+			current_instruction = ID_Stage(instruction);
+            cout<<instMap[current_instruction]<<endl;
 	
 			/* --------------------- IF stage --------------------- */
          
-            state.IF.PC=state.IF.PC.to_ulong()+4;
+            IF_Stage();
 			
 			
-			halted = true;
-			if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop)
+			//halted = true;
+			if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop || current_instruction == HALT)
 				halted = true;
         
             myRF.outputRF(cycle); // dump RF
 			printState(nextState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ... 
        
-			state = nextState; //The end of the cycle and updates the current state with the values calculated in this cycle
+		//	state = nextState; //The end of the cycle and updates the current state with the values calculated in this cycle
 			cycle++;
+      
 		}
 
 		void printState(stateStruct state, int cycle) {
