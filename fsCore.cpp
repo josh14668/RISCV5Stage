@@ -33,34 +33,37 @@ std::bitset<F> extendBitset(const std::bitset<N>& original) {
 
 template<std::size_t B>
 long bitset_to_long(const std::bitset<B>& b) {
-  struct {long x:B;} s;
-  return s.x = b.to_ulong();
+    struct {long x:B;} s;
+    return s.x = b.to_ulong();
 }
-
 
 struct IFStruct {
     bitset<32>  PC;
-    bool        nop;
+    bool        nop = false;
 };
 
 struct IDStruct {
     bitset<32>  Instr;
-    bool        nop;
+    bool        nop = true;
 };
 
 struct EXStruct {
     bitset<32>  Read_data1;
     bitset<32>  Read_data2;
-    bitset<16>  Imm;
+    bitset<32>  Imm;
     bitset<5>   Rs;
     bitset<5>   Rt;
     bitset<5>   Wrt_reg_addr;
-    bool        is_I_type;
-    bool        rd_mem;
-    bool        wrt_mem;
-    bool        alu_op;     //1 for addu, lw, sw, 0 for subu
-    bool        wrt_enable;
-    bool        nop;
+    bitset<3>   funct3;
+    bitset<7>   funct7;
+    bool        is_I_type = false;
+    bool        rd_mem = false;
+    bool        wrt_mem = false;
+    bool        alu_op;     //1 for add, 0 for sub
+    bool        wrt_enable = false;
+    bool        nop = true;
+    bool        is_branch = false;
+    bool        is_jal = false;
 };
 
 struct MEMStruct {
@@ -69,10 +72,10 @@ struct MEMStruct {
     bitset<5>   Rs;
     bitset<5>   Rt;
     bitset<5>   Wrt_reg_addr;
-    bool        rd_mem;
-    bool        wrt_mem;
-    bool        wrt_enable;
-    bool        nop;
+    bool        rd_mem = false;
+    bool        wrt_mem = false;
+    bool        wrt_enable = false;
+    bool        nop = true;
 };
 
 struct WBStruct {
@@ -80,8 +83,8 @@ struct WBStruct {
     bitset<5>   Rs;
     bitset<5>   Rt;
     bitset<5>   Wrt_reg_addr;
-    bool        wrt_enable;
-    bool        nop;
+    bool        wrt_enable = false;
+    bool        nop = true;
 };
 
 struct stateStruct {
@@ -94,41 +97,36 @@ struct stateStruct {
 
 class InsMem
 {
-	public:
-		string id, ioDir;
+    public:
+        string id, ioDir;
         InsMem(string name, string ioDir) {
-			id = name;
-			IMem.resize(MemSize);
+            id = name;
+            IMem.resize(MemSize);
             ifstream imem;
-			string line;
-			int i=0;
-			imem.open(ioDir+"/imem.txt");
-       
-			if (imem.is_open())
-			{
-				while (getline(imem,line))
-				{   
-					IMem[i] = bitset<8>(line.substr(0, 8));
-					i++;
-				}
-			}
+            string line;
+            int i=0;
+            imem.open(ioDir+"/imem.txt");
+            if (imem.is_open())
+            {
+                while (getline(imem,line))
+                {   
+                    IMem[i] = bitset<8>(line.substr(0, 8));
+                    i++;
+                }
+            }
             else cout<<"Unable to open IMEM input file.";
-			imem.close();
-		}
+            imem.close();
+        }
 
-		bitset<32> readInstr(bitset<32> ReadAddress) {
-
-			bitset<32> singleInt;
-			size_t startIndex = static_cast<size_t>(ReadAddress.to_ulong());
-			for (size_t i = 0; i < 4; ++i) 
-			{
-				singleInt <<= 8;
-				singleInt |= IMem[startIndex+i].to_ulong();
-        	
-    		}
-			
-			return singleInt;
-		}
+        bitset<32> readInstr(bitset<32> ReadAddress) {
+            bitset<32> instruction;
+            size_t startIndex = static_cast<size_t>((ReadAddress.to_ulong()) % MemSize);
+            for (int i = 0; i < 4; ++i) 
+            {
+                instruction = (instruction << 8) | IMem[startIndex + i].to_ulong();
+            }
+            return instruction;
+        }
 
     private:
         vector<bitset<8> > IMem;
@@ -137,10 +135,10 @@ class InsMem
 class DataMem
 {
     public:
-		string id, opFilePath, ioDir;
+        string id, opFilePath, ioDir;
         DataMem(string name, string ioDir) : id(name), ioDir(ioDir) {
             DMem.resize(MemSize);
-			opFilePath = ioDir + "/" + name + "_DMEMResult.txt";
+            opFilePath = ioDir + "/" + name + "_DMEMResult.txt";
             ifstream dmem;
             string line;
             int i=0;
@@ -150,43 +148,29 @@ class DataMem
                 while (getline(dmem,line))
                 {
                     DMem[i] = bitset<8>(line.substr(0,8));
-                
                     i++;
                 }
             }
             else cout<<"Unable to open DMEM input file.";
-                dmem.close();
+            dmem.close();
         }
 
         bitset<32> readDataMem(bitset<32> Address) {
-            bitset<32> singleData;
-			size_t startIndex = static_cast<size_t>(Address.to_ulong());
-			for (size_t i = 0; i < 4; ++i) 
-			{
-				singleData <<= 8;
-              
-				singleData |= DMem[startIndex+i].to_ulong();
-         
-
-    		}
-			
-			return singleData;
-			
-		}
+            bitset<32> data;
+            size_t startIndex = static_cast<size_t>((Address.to_ulong()) % MemSize);
+            for (int i = 0; i < 4; ++i) 
+            {
+                data = (data << 8) | DMem[startIndex + i].to_ulong();
+            }
+            return data;
+        }
 
         void writeDataMem(bitset<32> Address, bitset<32> WriteData) 
         {
-            size_t index = static_cast<size_t>(Address.to_ulong());
-
-           
-            
-            for(size_t i = 0; i<4;i++)
-            {   
-            
-                DMem[index+i].reset();
-                DMem[index+i] |= bitset<8>(WriteData.to_string().substr(0,8));
-                WriteData <<= 8;
-                
+            size_t startIndex = static_cast<size_t>((Address.to_ulong()) % MemSize);
+            for (int i = 0; i < 4; ++i)
+            {
+                DMem[startIndex + i] = bitset<8>((WriteData.to_ulong() >> (8 * (3 - i))) & 0xFF);
             }
         }
 
@@ -195,7 +179,7 @@ class DataMem
             ofstream dmemout;
             dmemout.open(opFilePath, std::ios_base::trunc);
             if (dmemout.is_open()) {
-                for (int j = 0; j< 1000; j++)
+                for (int j = 0; j< MemSize; j++)
                 {
                     dmemout << DMem[j]<<endl;
                 }
@@ -206,17 +190,16 @@ class DataMem
         }
 
     private:
-		vector<bitset<8> > DMem;
+        vector<bitset<8> > DMem;
 };
-
 
 class RegisterFile
 {
     public:
-		string outputFile;
-     	RegisterFile(string ioDir): outputFile (ioDir + "RFResult.txt") {
-			Registers.resize(32);
-			Registers[0] = bitset<32> (0);
+        string outputFile;
+        RegisterFile(string ioDir): outputFile (ioDir + "/RFResult.txt") {
+            Registers.resize(32);
+            Registers[0] = bitset<32> (0);
         }
 
         bitset<32> readRF(bitset<5> Reg_addr) {
@@ -224,740 +207,486 @@ class RegisterFile
         }
 
         void writeRF(bitset<5> Reg_addr, bitset<32> Wrt_reg_data) {
-            Registers[Reg_addr.to_ulong()] = Wrt_reg_data;
+            if (Reg_addr.to_ulong() != 0) // x0 is always zero
+                Registers[Reg_addr.to_ulong()] = Wrt_reg_data;
         }
 
-		void outputRF(int cycle) {
-			ofstream rfout;
-			if (cycle == 0)
-				rfout.open(outputFile, std::ios_base::trunc);
-			else
-				rfout.open(outputFile, std::ios_base::app);
-			if (rfout.is_open())
-			{
-				rfout<<"State of RF after executing cycle:\t"<<cycle<<endl;
-				for (int j = 0; j<32; j++)
-				{
-					rfout << Registers[j]<<endl;
-				}
-			}
-			else cout<<"Unable to open RF output file."<<endl;
-			rfout.close();
-		}
+        void outputRF(int cycle) {
+            ofstream rfout;
+            if (cycle == 0)
+                rfout.open(outputFile, std::ios_base::trunc);
+            else
+                rfout.open(outputFile, std::ios_base::app);
+            if (rfout.is_open())
+            {
+                rfout<<"State of RF after executing cycle:\t"<<cycle<<endl;
+                for (int j = 0; j<32; j++)
+                {
+                    rfout << Registers[j]<<endl;
+                }
+            }
+            else cout<<"Unable to open RF output file."<<endl;
+            rfout.close();
+        }
 
-	private:
-		vector<bitset<32> >Registers;
+    private:
+        vector<bitset<32> >Registers;
 };
 
 class Core {
- 
-	public:
-        enum SpecificInstruction {
-            ///// R-types /////
-            ADD,  
-            SUB,  
-            XOR,
-            OR,
-            AND,
 
-            /// I-Types //////
-            ADDI, // I-type
-            XORI,
-            ORI,
-            ANDI,
-            LW,   // I-type
+    public:
+        RegisterFile myRF;
+        uint32_t cycle = 0;
+        bool halted = false;
+        string ioDir;
+        struct stateStruct state, nextState;
+        InsMem ext_imem;
+        DataMem* ext_dmem;
 
-            SW,   // S-type
+        Core(string ioDir, InsMem &imem, DataMem* dmem): myRF(ioDir), ioDir(ioDir), ext_imem (imem), ext_dmem (dmem) {
+            state.IF.PC = 0;
+        }
 
-            //B-Type///
-            BEQ,  
-            BNE,
+        virtual void step() {}
 
-            JAL,  // J-type
-            HALT,
-            NOP,  // Not an operation
-        };
-        
-		RegisterFile myRF;
-		uint32_t cycle = 0;
-		bool halted = false;
-		string ioDir;
-		struct stateStruct state, nextState;
-		InsMem ext_imem;
-		DataMem* ext_dmem;
-
-		Core(string ioDir, InsMem &imem, DataMem* dmem): myRF(ioDir), ioDir(ioDir), ext_imem (imem), ext_dmem (dmem) {}
-
-		virtual void step() {}
-
-		virtual void printState() {}
+        virtual void printState() {}
 
         virtual void PerformanceMetrics() {}
 
-        SpecificInstruction decodeRType(const std::bitset<32> instruction)
-        {
+};
 
+class FiveStageCore : public Core{
+    public:
+        FiveStageCore(string ioDir, InsMem &imem, DataMem *dmem): Core(ioDir + "/FS_", imem, dmem), opFilePath(ioDir + "/StateResult_FS.txt")
+        {
+            state.IF.nop = false;
+            state.ID.nop = true;
+            state.EX.nop = true;
+            state.MEM.nop = true;
+            state.WB.nop = true;
+        }
+
+        void step() {
+
+            /* --------------------- WB stage --------------------- */
+            if(!state.WB.nop){
+                WB_STAGE();
+            }
+
+            /* --------------------- MEM stage -------------------- */
+            if(!state.MEM.nop){
+                MEM_STAGE();
+            }
+            nextState.WB = state.WB;
+            nextState.WB.nop = state.MEM.nop;
+
+            /* --------------------- EX stage --------------------- */
+            if(!state.EX.nop){
+                EX_STAGE();
+            }
+            nextState.MEM = state.MEM;
+            nextState.MEM.nop = state.EX.nop;
+
+            /* --------------------- ID stage --------------------- */
+            if(!state.ID.nop){
+                ID_STAGE();
+            }
+            nextState.EX = state.EX;
+            nextState.EX.nop = state.ID.nop;
+
+            /* --------------------- IF stage --------------------- */
+            if(!state.IF.nop){
+                IF_STAGE();
+            }
+            nextState.ID = state.ID;
+            nextState.ID.nop = state.IF.nop;
+
+            if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop)
+            {
+                halted = true;
+            }
+
+            myRF.outputRF(cycle); // dump RF
+            printState(nextState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ... 
+
+            state = nextState; //The end of the cycle and updates the current state with the values calculated in this cycle
+            cycle++;
+        }
+
+        void IF_STAGE()
+        {
+            if (!state.IF.nop) {
+                nextState.IF.PC = state.IF.PC.to_ulong() + 4;
+                nextState.ID.Instr = ext_imem.readInstr(state.IF.PC);
+                nextState.ID.nop = false;
+
+                // Check for stall
+                if (EX_hazard_detected) {
+                    nextState.ID = state.ID; // Stall
+                    nextState.IF = state.IF; // Stall PC
+                }
+            }
+        }
+
+        void ID_STAGE()
+        {
+            bitset<7> opcode = bitset<7>((state.ID.Instr.to_ulong()) & 0x7F);
+
+            // Initialize control signals
+            nextState.EX.is_I_type = false;
+            nextState.EX.rd_mem = false;
+            nextState.EX.wrt_mem = false;
+            nextState.EX.alu_op = true; // Default to ADD
+            nextState.EX.wrt_enable = false;
+            nextState.EX.is_branch = false;
+            nextState.EX.is_jal = false;
+
+            switch(opcode.to_ulong())
+            {
+                case 0x33: // R-Type
+                    decodeRType(state.ID.Instr);
+                    break;
+                case 0x03: // I-Type Load
+                case 0x13: // I-Type ALU
+                    decodeIType(state.ID.Instr, opcode);
+                    break;
+                case 0x63: // B-Type Branch
+                    decodeBType(state.ID.Instr);
+                    break;
+                case 0x23: // S-Type Store
+                    decodeSType(state.ID.Instr);
+                    break;
+                case 0x6F: // J-Type JAL
+                    decodeJType(state.ID.Instr);
+                    break;
+                case 0x7F: // HALT (Assuming 0x7F as HALT)
+                    halted = true;
+                    nextState.IF.nop = true;
+                    nextState.ID.nop = true;
+                    nextState.EX.nop = true;
+                    nextState.MEM.nop = true;
+                    nextState.WB.nop = true;
+                    break;
+                default:
+                    // Handle unknown opcode
+                    nextState.EX.nop = true;
+                    break;
+            }
+
+            // Hazard detection
+            detectHazards();
+        }
+
+        void EX_STAGE()
+        {
+            if (state.EX.is_branch) {
+                // Branch execution
+                bool branch_taken = false;
+                if (state.EX.funct3 == 0x0) { // BEQ
+                    if (state.EX.Read_data1 == state.EX.Read_data2)
+                        branch_taken = true;
+                } else if (state.EX.funct3 == 0x1) { // BNE
+                    if (state.EX.Read_data1 != state.EX.Read_data2)
+                        branch_taken = true;
+                }
+                if (branch_taken) {
+                    nextState.IF.PC = state.EX.Imm.to_ulong() + state.EX.Read_data1.to_ulong();
+                    // Flush the pipeline
+                    nextState.ID.nop = true;
+                    nextState.EX.nop = true;
+                }
+            } else if (state.EX.is_jal) {
+                // JAL execution
+                nextState.EX.ALUresult = state.EX.Read_data1.to_ulong() + state.EX.Imm.to_ulong();
+                nextState.IF.PC = nextState.EX.ALUresult.to_ulong();
+                nextState.EX.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+                nextState.EX.wrt_enable = true;
+                nextState.EX.Read_data1 = bitset<32>(state.IF.PC.to_ulong() + 4); // Return address
+                // Flush the pipeline
+                nextState.ID.nop = true;
+            } else {
+                // ALU operations
+                if (state.EX.is_I_type) {
+                    nextState.MEM.ALUresult = bitset<32>(state.EX.Read_data2.to_ulong() + state.EX.Imm.to_ulong());
+                } else {
+                    if (state.EX.alu_op) // ADD
+                        nextState.MEM.ALUresult = bitset<32>(state.EX.Read_data1.to_ulong() + state.EX.Read_data2.to_ulong());
+                    else // SUB
+                        nextState.MEM.ALUresult = bitset<32>(state.EX.Read_data1.to_ulong() - state.EX.Read_data2.to_ulong());
+                }
+            }
+
+            nextState.MEM.Store_data = state.EX.Read_data2;
+            nextState.MEM.Rs = state.EX.Rs;
+            nextState.MEM.Rt = state.EX.Rt;
+            nextState.MEM.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+            nextState.MEM.rd_mem = state.EX.rd_mem;
+            nextState.MEM.wrt_mem = state.EX.wrt_mem;
+            nextState.MEM.wrt_enable = state.EX.wrt_enable;
+            nextState.MEM.nop = state.EX.nop;
+        }
+
+        void MEM_STAGE()
+        {
+            if (state.MEM.rd_mem) {
+                nextState.WB.Wrt_data = ext_dmem->readDataMem(state.MEM.ALUresult);
+            } else if (state.MEM.wrt_mem) {
+                ext_dmem->writeDataMem(state.MEM.ALUresult, state.MEM.Store_data);
+            } else {
+                nextState.WB.Wrt_data = state.MEM.ALUresult;
+            }
+
+            nextState.WB.Rs = state.MEM.Rs;
+            nextState.WB.Rt = state.MEM.Rt;
+            nextState.WB.Wrt_reg_addr = state.MEM.Wrt_reg_addr;
+            nextState.WB.wrt_enable = state.MEM.wrt_enable;
+            nextState.WB.nop = state.MEM.nop;
+        }
+
+        void WB_STAGE()
+        {
+            if (state.WB.wrt_enable) {
+                myRF.writeRF(state.WB.Wrt_reg_addr, state.WB.Wrt_data);
+            }
+        }
+
+        void detectHazards()
+        {
+            EX_hazard_detected = false;
+
+            // Load-use hazard detection
+            if (state.EX.rd_mem && !state.EX.nop) {
+                bitset<5> ex_rd = state.EX.Wrt_reg_addr;
+                bitset<5> id_rs1 = (state.ID.Instr.to_ulong() >> 15) & 0x1F;
+                bitset<5> id_rs2 = (state.ID.Instr.to_ulong() >> 20) & 0x1F;
+
+                if (ex_rd != 0 && (ex_rd == id_rs1 || ex_rd == id_rs2)) {
+                    // Stall the pipeline
+                    nextState.ID = state.ID;
+                    nextState.IF = state.IF;
+                    nextState.EX.nop = true;
+                    EX_hazard_detected = true;
+                }
+            }
+        }
+
+        void decodeRType(const std::bitset<32>& instruction)
+        {
             // Extracting fields from the instruction
-            std::bitset<7> funct7(instruction.to_ulong() >> 25);
+            std::bitset<7> funct7((instruction.to_ulong() >> 25) & 0x7F);
             std::bitset<5> rs2((instruction.to_ulong() >> 20) & 0x1F);
             std::bitset<5> rs1((instruction.to_ulong() >> 15) & 0x1F);
             std::bitset<3> funct3((instruction.to_ulong() >> 12) & 0x7);
             std::bitset<5> rd((instruction.to_ulong() >> 7) & 0x1F);
 
-            state.EX.Imm = 0; // R-type instructions don't use an immediate
-            state.EX.Rs = rs1.to_ulong();
-            state.EX.Rt = rs2.to_ulong();
-         
-            //Update Read date with contents of register file.
-            state.EX.Read_data1 = myRF.readRF(state.EX.Rs);
-            state.EX.Read_data2 = myRF.readRF(state.EX.Rt);
+            nextState.EX.Rs = rs1;
+            nextState.EX.Rt = rs2;
+            nextState.EX.Wrt_reg_addr = rd;
+            nextState.EX.funct3 = funct3;
+            nextState.EX.funct7 = funct7;
+            nextState.EX.is_I_type = false;
+            nextState.EX.rd_mem = false;
+            nextState.EX.wrt_mem = false;
+            nextState.EX.wrt_enable = true;
+            nextState.EX.nop = false;
 
+            // Read data from register file
+            nextState.EX.Read_data1 = myRF.readRF(rs1);
+            nextState.EX.Read_data2 = myRF.readRF(rs2);
 
-
-            state.EX.Wrt_reg_addr = rd.to_ulong();
-            state.EX.is_I_type = false; // R-type, not I-type
-            state.EX.rd_mem = false; // R-type instructions don't read from memory
-            state.EX.wrt_mem = false; // R-type instructions don't write to memory
-            // Assuming alu_op represents whether the operation is an addition or subtraction
-            // This simplification might not accurately reflect all R-type operations. Adjust as needed.
-
-            state.EX.alu_op = (funct7.to_ulong() == 0x20); // False for ADD etc, True for SUB 
-
-            state.EX.wrt_enable = true; // R-type instructions typically write to a register
-            state.EX.nop = false; // Not a NOP if we're decoding an actual instruction
-
-            if(state.EX.alu_op == true)
-            {
-                return SpecificInstruction::SUB;
+            // Determine ALU operation
+            if (funct3 == 0x0 && funct7 == 0x00) {
+                nextState.EX.alu_op = true; // ADD
+            } else if (funct3 == 0x0 && funct7 == 0x20) {
+                nextState.EX.alu_op = false; // SUB
+            } else {
+                // Handle other R-type instructions
             }
-            else
-            {
-                switch (funct3.to_ulong())
-                {
-                case 0b00: return SpecificInstruction::ADD;
-        
-                case 0b100: return SpecificInstruction::XOR;
-                   
-                case 0b110: return SpecificInstruction::OR;
-                    
-                case 0b111: return SpecificInstruction::AND;
-            
-                }
-
-            }
-            return NOP;
-            
         }
 
-        SpecificInstruction decodeIType(const std::bitset<32> instruction, bitset<7> opcode) 
+        void decodeIType(const std::bitset<32>& instruction, bitset<7> opcode) 
         {
             std::bitset<12> imm(instruction.to_ulong() >> 20);
             std::bitset<5> rs1((instruction.to_ulong() >> 15) & 0x1F);
             std::bitset<3> funct3((instruction.to_ulong() >> 12) & 0x7);
             std::bitset<5> rd((instruction.to_ulong() >> 7) & 0x1F);
 
-            state.EX.Imm = extendBitset<12,16>(imm);
+            nextState.EX.Rs = rs1;
+            nextState.EX.Rt = 0;
+            nextState.EX.Wrt_reg_addr = rd;
+            nextState.EX.funct3 = funct3;
+            nextState.EX.is_I_type = true;
+            nextState.EX.wrt_enable = true;
+            nextState.EX.nop = false;
 
-            state.EX.Rs = rs1.to_ulong();
+            nextState.EX.Imm = extendBitset<12,32>(imm);
+            nextState.EX.Read_data2 = myRF.readRF(rs1);
 
-            //state.EX.Read_data1 = signExtendedImm;
-            state.EX.Read_data2 = myRF.readRF(state.EX.Rs);
-            
-            state.EX.Rt = 0; // Not used in I-type
-            state.EX.Wrt_reg_addr = rd.to_ulong(); //Destination register
-
-            state.EX.is_I_type = true;
-            state.EX.rd_mem = (funct3.to_ulong() == 0x0 && opcode.to_ulong() == 0x03); // For LW instruction funct3 = 0x00, opcode = 0x03, since there is a read from memory 
-
-            state.EX.wrt_mem = false; //No write to memory in I-type 
-
-            // Assuming alu_op represents add for immediate addition and load
-            state.EX.alu_op = true; // All requires alu op
-
-            state.EX.wrt_enable = true; //All I type writes to reg file
-            state.EX.nop = false;
-
-            if(state.EX.rd_mem == true)
-            {
-                state.EX.wrt_enable = false;
-                return SpecificInstruction::LW;
+            if (opcode == 0x03) { // Load instruction
+                nextState.EX.rd_mem = true;
+                nextState.EX.wrt_mem = false;
+            } else { // I-type ALU instruction
+                nextState.EX.rd_mem = false;
+                nextState.EX.wrt_mem = false;
             }
-            else
-            {
-                switch (funct3.to_ulong())
-                {
-                case 0b00: return SpecificInstruction::ADDI;
-                    
-                case 0b100: return SpecificInstruction::XORI;
-                  
-                case 0b110: return SpecificInstruction::ORI;
-                   
-                case 0b111: return SpecificInstruction::ANDI;
-                
-                default: return SpecificInstruction::NOP;
-                   
-                }
-            }
-            return NOP;
         }
 
-        SpecificInstruction decodeJType(const std::bitset<32> instruction) 
+        void decodeBType(const std::bitset<32>& instruction) 
         {
-            // Extracting parts of the immediate spread across the instruction
-            int32_t imm20 = (instruction[31] ? 1 : 0);
-            int32_t imm10_1 = (instruction.to_ulong() >> 21) & 0x3FF;
-            int32_t imm11 = (instruction[20] ? 1 : 0);
-            int32_t imm19_12 = (instruction.to_ulong() >> 12) & 0xFF;
-            
-            // Assembling the immediate and sign-extending it
-            int32_t imm = (imm20 << 20) | (imm19_12 << 12) | (imm11 << 11) | (imm10_1 << 1);
-            // Sign-extension
-            if (imm20) imm |= 0xFFF00000; // If imm[20] is set, extend the sign
-            
-            std::bitset<5> rd((instruction.to_ulong() >> 7) & 0x1F); // Destination register
-
-            // Update the EXStruct
-            state.EX.Imm = std::bitset<16>(imm & 0xFFFF); // Assuming Imm can hold the lower 16 bits, adjust as needed
-            state.EX.Wrt_reg_addr = rd;
-            state.EX.is_I_type = false; // Not an I-type
-            state.EX.rd_mem = false; // Doesn't read from memory
-            state.EX.wrt_mem = false; // Doesn't write to memory
-            state.EX.alu_op = false; // Not an ALU operation
-            state.EX.wrt_enable = true; // Writes to register, stores PC+4 in rd
-            state.EX.nop = false; // Not a NOP
-
-            return SpecificInstruction::JAL; // JAL is the specific J-type instruction being decoded
-        }
-
-        SpecificInstruction decodeBType(const std::bitset<32> instruction) 
-        {
-            // Extracting parts of the immediate and reassembling it
-            int32_t imm12 = (instruction[31] ? 1 : 0);
-            int32_t imm10_5 = (instruction.to_ulong() >> 25) & 0x3F;
-            int32_t imm4_1 = (instruction.to_ulong() >> 8) & 0xF;
-            int32_t imm11 = (instruction[7] ? 1 : 0);
-            
-            // Assembling the immediate and sign-extending it
-            int32_t imm = (imm12 << 12) | (imm11 << 11) | (imm10_5 << 5) | (imm4_1 << 1);
-
-          
-            // Sign-extension
-            if (imm12) imm |= 0xFFFFE000; // If imm[12] is set, extend the sign
-            
-            
             std::bitset<5> rs1((instruction.to_ulong() >> 15) & 0x1F);
             std::bitset<5> rs2((instruction.to_ulong() >> 20) & 0x1F);
             std::bitset<3> funct3((instruction.to_ulong() >> 12) & 0x7);
 
-            // Update the EXStruct
-            state.EX.Imm = std::bitset<16>(imm & 0xFFFF); // Assuming Imm can hold the lower 16 bits
-           
+            // Immediate
+            std::bitset<1> imm11 = (instruction >> 7)[0];
+            std::bitset<4> imm4_1 = (instruction.to_ulong() >> 8) & 0xF;
+            std::bitset<6> imm10_5 = (instruction.to_ulong() >> 25) & 0x3F;
+            std::bitset<1> imm12 = (instruction >> 31)[0];
 
-            state.EX.Rs = rs1;
-            state.EX.Rt = rs2;
-            state.EX.is_I_type = false;
-            state.EX.rd_mem = false; // B-type doesn't read from memory
-            state.EX.wrt_mem = false; // B-type doesn't write to memory
-            state.EX.alu_op = false; // Not directly an ALU operation, but involves comparison
-            state.EX.wrt_enable = false; // B-type doesn't write to register
-            state.EX.nop = false;
-
-            // Determine the specific B-type instruction
-            switch (funct3.to_ulong()) {
-                case 0x0: return SpecificInstruction::BEQ;
-                case 0x1: return SpecificInstruction::BNE;
-                default: return SpecificInstruction::NOP; // Fallback case
-                break;
+            int32_t imm = (imm12.to_ulong() << 12) | (imm11.to_ulong() << 11) | (imm10_5.to_ulong() << 5) | (imm4_1.to_ulong() << 1);
+            if (imm12.to_ulong()) {
+                imm |= 0xFFFFE000; // Sign-extend negative immediate
             }
+
+            nextState.EX.Rs = rs1;
+            nextState.EX.Rt = rs2;
+            nextState.EX.funct3 = funct3;
+            nextState.EX.is_branch = true;
+            nextState.EX.nop = false;
+
+            nextState.EX.Imm = bitset<32>(imm);
+
+            nextState.EX.Read_data1 = myRF.readRF(rs1);
+            nextState.EX.Read_data2 = myRF.readRF(rs2);
         }
-        
-        SpecificInstruction decodeSType(const std::bitset<32> instruction) 
+
+        void decodeSType(const std::bitset<32>& instruction) 
         {
-            // Extracting parts of the immediate and reassembling it
-            int32_t imm11_5 = (instruction.to_ulong() >> 25) & 0x7F;
-            int32_t imm4_0 = (instruction.to_ulong() >> 7) & 0x1F;
-        
-
-            // Assembling the immediate and sign-extending it
-            int32_t imm = (imm11_5 << 5) | imm4_0;
-
-            
-            // Sign-extension
-            if (imm & 0x800) imm |= 0xFFFFF000; // If the sign bit (bit 11) is set, extend the sign
-            
-
-            
             std::bitset<5> rs1((instruction.to_ulong() >> 15) & 0x1F);
             std::bitset<5> rs2((instruction.to_ulong() >> 20) & 0x1F);
             std::bitset<3> funct3((instruction.to_ulong() >> 12) & 0x7);
 
+            // Immediate
+            std::bitset<5> imm4_0 = (instruction.to_ulong() >> 7) & 0x1F;
+            std::bitset<7> imm11_5 = (instruction.to_ulong() >> 25) & 0x7F;
 
-            // Update the EXStruct
-            state.EX.Imm = std::bitset<16>(imm & 0xFFFF); // Assuming Imm can hold the lower 16 bits
+            int32_t imm = (imm11_5.to_ulong() << 5) | imm4_0.to_ulong();
+            if (imm11_5[6]) {
+                imm |= 0xFFFFF000; // Sign-extend negative immediate
+            }
 
+            nextState.EX.Rs = rs1;
+            nextState.EX.Rt = rs2;
+            nextState.EX.funct3 = funct3;
+            nextState.EX.is_I_type = true;
+            nextState.EX.wrt_mem = true;
+            nextState.EX.rd_mem = false;
+            nextState.EX.wrt_enable = false;
+            nextState.EX.nop = false;
 
+            nextState.EX.Imm = bitset<32>(imm);
 
-            state.EX.Rs = rs1;
-            state.EX.Rt = rs2;
-
-      
-    
-            state.EX.is_I_type = false;
-            state.EX.rd_mem = false; // S-type doesn't read from memory
-            state.EX.wrt_mem = true; // S-type writes to memory
-            state.EX.alu_op = false; // Not an ALU operation, but involves memory address calculation
-            state.EX.wrt_enable = false; // S-type doesn't write to register file
-            state.EX.nop = false;
-
-            // Determine the specific S-type instruction
-            return SpecificInstruction::SW;
+            nextState.EX.Read_data1 = myRF.readRF(rs1);
+            nextState.EX.Read_data2 = myRF.readRF(rs2);
         }
 
-        SpecificInstruction ID_Stage(bitset<32> instruction)
+        void decodeJType(const std::bitset<32>& instruction) 
         {
-            SpecificInstruction whatInst;
+            std::bitset<5> rd((instruction.to_ulong() >> 7) & 0x1F);
 
-            bitset<32> opcodeMask = 0b1111111;
+            // Immediate
+            std::bitset<1> imm20 = (instruction >> 31)[0];
+            std::bitset<8> imm19_12 = (instruction.to_ulong() >> 12) & 0xFF;
+            std::bitset<1> imm11 = (instruction >> 20)[0];
+            std::bitset<10> imm10_1 = (instruction.to_ulong() >> 21) & 0x3FF;
 
-            bitset<7> opcode((instruction & opcodeMask).to_ulong()); // Pulls opcode last 7 bits
-
-            cout<< opcode << endl;
-            
-            switch(opcode.to_ulong()){
-
-                case 0x33: return decodeRType(instruction); //R-Type 
-
-                case 0x3: return decodeIType(instruction,opcode); //I type LW
-
-                case 0x13: return decodeIType(instruction,opcode); //I-Type
-
-                case 0x6F: return decodeJType(instruction); //J-Type
-
-                case 0x63: return decodeBType(instruction);//B-Type execution happens in ID stage
-        
-                case 0x23: return decodeSType(instruction); //S-Type
-
-                case 0x7F: return HALT;
-
-                default: return NOP;
-               
-            }
-            
-           
-            
-        } 
-
-        void IF_Stage()
-        {
-            cout<<"IF_Stage"<<endl;
-
-            if(ext_imem.readInstr(state.IF.PC) == 0x7F)
-            {
-                state.IF.nop = true;
-                state.EX.nop = true;
-                state.ID.nop = true;
-                state.MEM.nop = true;
-                state.WB.nop = true;
-                halted = true;
+            int32_t imm = (imm20.to_ulong() << 20) | (imm19_12.to_ulong() << 12) | (imm11.to_ulong() << 11) | (imm10_1.to_ulong() << 1);
+            if (imm20.to_ulong()) {
+                imm |= 0xFFF00000; // Sign-extend negative immediate
             }
 
-            state.IF.PC = state.IF.PC.to_ulong() + 4;
+            nextState.EX.Rs = 0;
+            nextState.EX.Rt = 0;
+            nextState.EX.Wrt_reg_addr = rd;
+            nextState.EX.is_jal = true;
+            nextState.EX.wrt_enable = true;
+            nextState.EX.nop = false;
 
-
+            nextState.EX.Imm = bitset<32>(imm);
+            nextState.EX.Read_data1 = bitset<32>(state.IF.PC.to_ulong());
         }
 
-};
+        void printState(stateStruct state, int cycle) {
+            ofstream printstate;
+            if (cycle == 0)
+                printstate.open(opFilePath, std::ios_base::trunc);
+            else 
+                printstate.open(opFilePath, std::ios_base::app);
+            if (printstate.is_open()) {
 
+                printstate<<"=========================================================================\t"<<endl;
 
-const char* instMap[]  = {
-    "ADD",  // Corresponds to SpecificInstruction::ADD
-    "SUB",  // Corresponds to SpecificInstruction::SUB
-    "XOR",  // Corresponds to SpecificInstruction::XOR
-    "OR",   // Corresponds to SpecificInstruction::OR
-    "AND",  // Corresponds to SpecificInstruction::AND
+                printstate<<"State after executing cycle:\t"<<cycle<<endl; 
 
-    "ADDI", // Corresponds to SpecificInstruction::ADDI
-    "XORI", // Corresponds to SpecificInstruction::XORI
-    "ORI",  // Corresponds to SpecificInstruction::ORI
-    "ANDI", // Corresponds to SpecificInstruction::ANDI
-    "LW",   // Corresponds to SpecificInstruction::LW
+                printstate<<"----------------------  IF  ---------------------\t"<<endl;
 
-    "SW",   // Corresponds to SpecificInstruction::SW
+                printstate<<"IF.PC:\t"<<state.IF.PC.to_ulong()<<endl;        
+                printstate<<"IF.nop:\t"<<state.IF.nop<<endl; 
 
-    "BEQ",  // Corresponds to SpecificInstruction::BEQ
-    "BNE",  // Corresponds to SpecificInstruction::BNE
+                printstate<<"----------------------  ID  ---------------------\t"<<endl;
 
-    "JAL",  // Corresponds to SpecificInstruction::JAL
-    "HALT",
-    "NOP"   // Corresponds to SpecificInstruction::NOP
-    };
+                printstate<<"ID.Instr:\t"<<state.ID.Instr<<endl; 
+                printstate<<"ID.nop:\t"<<state.ID.nop<<endl;
 
+                printstate<<"----------------------  EX  ---------------------\t"<<endl;
 
-class SingleStageCore : public Core {
-	public:
-		SingleStageCore(string ioDir, InsMem &imem, DataMem* dmem): Core(ioDir + "\\SS_", imem, dmem), opFilePath(ioDir + "\\StateResult_SS.txt") {}
+                printstate<<"EX.Read_data1:\t"<<state.EX.Read_data1<<endl;
+                printstate<<"EX.Read_data2:\t"<<state.EX.Read_data2<<endl;
+                printstate<<"EX.Imm:\t"<<state.EX.Imm<<endl; 
+                printstate<<"EX.Rs:\t"<<state.EX.Rs<<endl;
+                printstate<<"EX.Rt:\t"<<state.EX.Rt<<endl;
+                printstate<<"EX.Wrt_reg_addr:\t"<<state.EX.Wrt_reg_addr<<endl;
+                printstate<<"EX.is_I_type:\t"<<state.EX.is_I_type<<endl; 
+                printstate<<"EX.rd_mem:\t"<<state.EX.rd_mem<<endl;
+                printstate<<"EX.wrt_mem:\t"<<state.EX.wrt_mem<<endl;        
+                printstate<<"EX.alu_op:\t"<<state.EX.alu_op<<endl;
+                printstate<<"EX.wrt_enable:\t"<<state.EX.wrt_enable<<endl;
+                printstate<<"EX.nop:\t"<<state.EX.nop<<endl;        
 
+                printstate<<"----------------------  MEM  ---------------------\t"<<endl;
 
-        void PerformanceMetrics(uint32_t cycle, uint32_t totalInstructions){
-            ofstream printMetrics;
-            string filePath = ioDir + "PerformanceMetrics.txt";
-            float cpi = static_cast<float>(cycle) /static_cast<float> (totalInstructions);
-            float ipc = 1/static_cast<float>(cpi);
-            printMetrics.open(filePath, std::ios_base::trunc);
-            if (printMetrics.is_open()){
-                printMetrics << "Performance of Single Stage: " << endl;
-                printMetrics << "#Cycles -> " << cycle << endl;
-                printMetrics << "#Instructions -> " << totalInstructions << endl;
-                printMetrics << "CPI -> " << cpi << endl;
-                printMetrics << "IPC -> " << ipc << endl; 
+                printstate<<"MEM.ALUresult:\t"<<state.MEM.ALUresult<<endl;
+                printstate<<"MEM.Store_data:\t"<<state.MEM.Store_data<<endl; 
+
+                printstate<<"MEM.Rs:\t"<<state.MEM.Rs<<endl;
+                printstate<<"MEM.Rt:\t"<<state.MEM.Rt<<endl;   
+                printstate<<"MEM.Wrt_reg_addr:\t"<<state.MEM.Wrt_reg_addr<<endl;              
+                printstate<<"MEM.rd_mem:\t"<<state.MEM.rd_mem<<endl;
+                printstate<<"MEM.wrt_mem:\t"<<state.MEM.wrt_mem<<endl; 
+                printstate<<"MEM.wrt_enable:\t"<<state.MEM.wrt_enable<<endl;         
+                printstate<<"MEM.nop:\t"<<state.MEM.nop<<endl;        
+
+                printstate<<"----------------------  WB  ---------------------\t"<<endl;
+
+                printstate<<"WB.Wrt_data:\t"<<state.WB.Wrt_data<<endl;
+                printstate<<"WB.Rs:\t"<<state.WB.Rs<<endl;
+                printstate<<"WB.Rt:\t"<<state.WB.Rt<<endl;
+                printstate<<"WB.Wrt_reg_addr:\t"<<state.WB.Wrt_reg_addr<<endl;
+                printstate<<"WB.wrt_enable:\t"<<state.WB.wrt_enable<<endl;
+                printstate<<"WB.nop:\t"<<state.WB.nop<<endl; 
             }
-            else cout << "Unable to open a performance metrics output file." << endl;
-            printMetrics.close();
+            else cout<<"Unable to open FS StateResult output file." << endl;
+            printstate.close();
         }
-
-
-        void EX_STAGE(SpecificInstruction instruction)
-    {
-        bitset<32> result;
-        switch (instruction) {
-        case SpecificInstruction::ADD:
-            state.MEM.ALUresult = state.EX.Read_data1.to_ulong() + state.EX.Read_data2.to_ulong();
-            break;
-        case SpecificInstruction::SUB:
-            state.MEM.ALUresult = state.EX.Read_data1.to_ulong() - state.EX.Read_data2.to_ulong();
-            break;
-        case SpecificInstruction::XOR:
-            state.MEM.ALUresult = state.EX.Read_data1 ^ state.EX.Read_data2;
-            break;
-        case SpecificInstruction::OR:
-            state.MEM.ALUresult = state.EX.Read_data1 | state.EX.Read_data2;
-            break;
-        case SpecificInstruction::AND:
-            state.MEM.ALUresult = state.EX.Read_data1 & state.EX.Read_data2;
-            break;
-
-        // I-type instructions
-        case SpecificInstruction::ADDI:
-            //state.MEM.ALUresult = bitset_to_long(state.EX.Read_data2)+bitset_to_long(state.EX.Imm);
-            state.MEM.ALUresult = state.EX.Read_data2.to_ulong() + state.EX.Imm.to_ulong();
-            
-            break;
-        case SpecificInstruction::XORI:
-            state.MEM.ALUresult = state.EX.Read_data2.to_ulong() ^ state.EX.Imm.to_ulong();
-            
-            break;
-        case SpecificInstruction::ORI:
-            state.MEM.ALUresult = state.EX.Read_data2.to_ulong() | state.EX.Imm.to_ulong();
-         
-            break;
-        case SpecificInstruction::ANDI:
-            state.MEM.ALUresult = state.EX.Read_data2.to_ulong() & state.EX.Imm.to_ulong();
-            
-            break;
-        case SpecificInstruction::LW:
-
-            state.MEM.ALUresult = myRF.readRF(state.EX.Rs).to_ulong() + extendBitset<16,32>(state.EX.Imm).to_ulong();
-            break;
-        case SpecificInstruction::SW:
-
-            state.EX.Read_data1 = myRF.readRF(state.EX.Rs);
-            state.MEM.ALUresult = state.EX.Read_data1.to_ulong() + extendBitset<16,32>(state.EX.Imm).to_ulong();
-
-            break;
-
-        // J-type instruction
-        case SpecificInstruction::JAL:
-            // Example for JAL - typically involves PC update and storing return address
-            myRF.writeRF(state.EX.Wrt_reg_addr.to_ulong(), state.IF.PC.to_ulong()+4);
-            state.IF.PC = state.IF.PC.to_ulong() + state.EX.Imm.to_ulong();    
-            // Update PC logic here
-            break;
-
-        // NOP or unknown instruction
-        case SpecificInstruction::NOP:
-        default:
-            // No operation or handle unknown instruction
-            break;
-    }
-        
-
-    }
-
-        SpecificInstruction whatInst;
-
-        uint32_t totalInstruction = 0;
-
-        void step() {
-            
-    
-
-            ///////////////// IF Stage ///////////////////////////////////
-       
-            state.ID.Instr = ext_imem.readInstr(state.IF.PC); // Passes read instruction into the ID instr
-
-            state.IF.PC = state.IF.PC.to_ulong() + 4; // Updates PC 
-            totalInstruction +=1;
-            
-           
-
-            bitset<32> current_instruction = state.ID.Instr;
-
-           
-
-            bitset<32> opcodeMask = 0b1111111;
-
-            bitset<7> opcode((current_instruction & opcodeMask).to_ulong()); // Pulls opcode last 7 bits
-  
-             
-		
-            if(opcode == 0b1111111)
-            {
-                state.IF.nop = true;
-                state.IF.PC = state.IF.PC.to_ulong() - 4;
-                totalInstruction +=1;
-
-            }
-            ///////////////////////////////////////////////////////////////
- 
-            //////////////// ID Stage ////////////////////////////////////
-
-
-            switch(opcode.to_ulong()){
-                // case 0x7F: //Halt function and end program
-                //     state.IF.nop=true;
-
-                //     break;
-                
-                case 0x33: //R-Type
-               
-                    whatInst = decodeRType(current_instruction);
-
-                    break;
-                case 0x3: //I type LW
-
-                    whatInst = decodeIType(current_instruction,opcode);
-                    break;
-                    
-
-                case 0x13: //I-Type
-                    whatInst = decodeIType(current_instruction,opcode);
-                    break; 
-
-                case 0x6F: //J-Type
-                    whatInst = decodeJType(current_instruction);
-                    break;
-                
-                case 0x63://B-Type execution happens in ID stage
-                    whatInst = decodeBType(current_instruction);
-              
-                    if(whatInst == SpecificInstruction::BEQ)
-                    {
-                        if(myRF.readRF(state.EX.Rs) == myRF.readRF(state.EX.Rt))
-                        {
-                            state.IF.PC = state.IF.PC.to_ulong() - 4;
-
-                            state.IF.PC = state.IF.PC.to_ulong() + bitset_to_long(state.EX.Imm);
-                        }
-
-                    }else if (whatInst == SpecificInstruction::BNE)
-                    {   
-                    
-                       
-                        if(myRF.readRF(state.EX.Rs) != myRF.readRF(state.EX.Rt))
-                        {   
-                           
-                            state.IF.PC = state.IF.PC.to_ulong() - 4;
-                            
-                            state.IF.PC = state.IF.PC.to_ulong() + bitset_to_long(state.EX.Imm);
-                     
-
-                        }
-                    }
-                    break;
-
-                case 0x23: //S-Type
-                    whatInst = decodeSType(current_instruction);
-                    break;
-
-                default:
-                    whatInst = NOP;
-                    break;
-               
-            }
-            
-           
-
-       
-
-            //////////////// EXECUTE STAGE //////////////////////////////
-
- 
-            EX_STAGE(whatInst);
-
-          
-            //////////////// Mem Stage ///////////////////////////////
-         
-
-        
-            if(whatInst == SpecificInstruction::SW) // S-TYpe 
-            {
-             
-
-                ext_dmem->writeDataMem(state.MEM.ALUresult, myRF.readRF(state.EX.Rt));
-                
-            }
-
-            if(whatInst == SpecificInstruction::LW) //LW
-            {           
-                myRF.writeRF(state.EX.Wrt_reg_addr,ext_dmem->readDataMem(state.MEM.ALUresult));
-                myRF.outputRF(cycle);
-            }
-
-            /////////////////// Write Back /////////////////////////////
-    
-
-            if(state.EX.wrt_enable)
-            {   
-                myRF.writeRF(state.EX.Wrt_reg_addr,state.MEM.ALUresult); 
-            }
-        
-			if (state.IF.nop && nextState.IF.nop)
-            {
-				halted = true;
-            }
-
-			myRF.outputRF(cycle); // dump RF
-			printState(state, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ...
-            
-            PerformanceMetrics(cycle,totalInstruction);
-
-			nextState = state; // The end of the cycle and updates the current state with the values calculated in this cycle
-
-			cycle++;
-   
-		}
-       
-		void printState(stateStruct state, int cycle) {
-    		ofstream printstate;
-			if (cycle == 0)
-				printstate.open(opFilePath, std::ios_base::trunc);
-			else
-    			printstate.open(opFilePath, std::ios_base::app);
-    		// if (printstate.is_open()) {
-    		//     printstate<<"State after executing cycle:\t"<<cycle<<endl;
-
-    		//     printstate<<"IF.PC:\t"<<state.IF.PC.to_ulong()<<endl;
-    		//     printstate<<"IF.nop:\t"<<state.IF.nop<<endl;
-    		// }
-    		// else cout<<"Unable to open SS StateResult output file." << endl;
-    		// printstate.close();
-		}
-	private:
-		string opFilePath;
+    private:
+        string opFilePath;
+        bool EX_hazard_detected = false;
 };
-
-
-class FiveStageCore : public Core{
-	public:
-		
-		FiveStageCore(string ioDir, InsMem &imem, DataMem *dmem): Core(ioDir + "\\FS_", imem, dmem), opFilePath(ioDir + "\\StateResult_FS.txt") {}
-
-		void step() {
-            SpecificInstruction current_instruction;
-            cout<<"START 5 Stage"<<endl;
-			/* Your implementation */
-			/* --------------------- WB stage --------------------- */
-			
-			
-			
-			/* --------------------- MEM stage -------------------- */
-			
-			
-			
-			/* --------------------- EX stage --------------------- */
-			
-			
-			
-			/* --------------------- ID stage --------------------- */
-            bitset<32> instruction=bitset<32> (0);
-            instruction= ext_imem.readInstr(state.IF.PC);
-
-			current_instruction = ID_Stage(instruction);
-            cout<<instMap[current_instruction]<<endl;
-	
-			/* --------------------- IF stage --------------------- */
-         
-            IF_Stage();
-			
-			
-			//halted = true;
-			if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop || current_instruction == HALT)
-				halted = true;
-        
-            myRF.outputRF(cycle); // dump RF
-			printState(nextState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ... 
-       
-		//	state = nextState; //The end of the cycle and updates the current state with the values calculated in this cycle
-			cycle++;
-      
-		}
-
-		void printState(stateStruct state, int cycle) {
-		    ofstream printstate;
-			if (cycle == 0)
-				printstate.open(opFilePath, std::ios_base::trunc);
-			else 
-		    	printstate.open(opFilePath, std::ios_base::app);
-		    if (printstate.is_open()) {
-		        printstate<<"State after executing cycle:\t"<<cycle<<endl; 
-
-		        printstate<<"IF.PC:\t"<<state.IF.PC.to_ulong()<<endl;        
-		        printstate<<"IF.nop:\t"<<state.IF.nop<<endl; 
-
-		        printstate<<"ID.Instr:\t"<<state.ID.Instr<<endl; 
-		        printstate<<"ID.nop:\t"<<state.ID.nop<<endl;
-
-		        printstate<<"EX.Read_data1:\t"<<state.EX.Read_data1<<endl;
-		        printstate<<"EX.Read_data2:\t"<<state.EX.Read_data2<<endl;
-		        printstate<<"EX.Imm:\t"<<state.EX.Imm<<endl; 
-		        printstate<<"EX.Rs:\t"<<state.EX.Rs<<endl;
-		        printstate<<"EX.Rt:\t"<<state.EX.Rt<<endl;
-		        printstate<<"EX.Wrt_reg_addr:\t"<<state.EX.Wrt_reg_addr<<endl;
-		        printstate<<"EX.is_I_type:\t"<<state.EX.is_I_type<<endl; 
-		        printstate<<"EX.rd_mem:\t"<<state.EX.rd_mem<<endl;
-		        printstate<<"EX.wrt_mem:\t"<<state.EX.wrt_mem<<endl;        
-		        printstate<<"EX.alu_op:\t"<<state.EX.alu_op<<endl;
-		        printstate<<"EX.wrt_enable:\t"<<state.EX.wrt_enable<<endl;
-		        printstate<<"EX.nop:\t"<<state.EX.nop<<endl;        
-
-		        printstate<<"MEM.ALUresult:\t"<<state.MEM.ALUresult<<endl;
-		        printstate<<"MEM.Store_data:\t"<<state.MEM.Store_data<<endl; 
-		        printstate<<"MEM.Rs:\t"<<state.MEM.Rs<<endl;
-		        printstate<<"MEM.Rt:\t"<<state.MEM.Rt<<endl;   
-		        printstate<<"MEM.Wrt_reg_addr:\t"<<state.MEM.Wrt_reg_addr<<endl;              
-		        printstate<<"MEM.rd_mem:\t"<<state.MEM.rd_mem<<endl;
-		        printstate<<"MEM.wrt_mem:\t"<<state.MEM.wrt_mem<<endl; 
-		        printstate<<"MEM.wrt_enable:\t"<<state.MEM.wrt_enable<<endl;         
-		        printstate<<"MEM.nop:\t"<<state.MEM.nop<<endl;        
-
-		        printstate<<"WB.Wrt_data:\t"<<state.WB.Wrt_data<<endl;
-		        printstate<<"WB.Rs:\t"<<state.WB.Rs<<endl;
-		        printstate<<"WB.Rt:\t"<<state.WB.Rt<<endl;
-		        printstate<<"WB.Wrt_reg_addr:\t"<<state.WB.Wrt_reg_addr<<endl;
-		        printstate<<"WB.wrt_enable:\t"<<state.WB.wrt_enable<<endl;
-		        printstate<<"WB.nop:\t"<<state.WB.nop<<endl; 
-		    }
-		    else cout<<"Unable to open FS StateResult output file." << endl;
-		    printstate.close();
-		}
-	private:
-		string opFilePath;
-};
-
 
 int main(int argc, char* argv[]) {
 
-	string ioDir = "";
+    string ioDir = "";
     if (argc == 1) {
         cout << "Enter path containing the memory files: ";
         cin >> ioDir;
@@ -972,31 +701,14 @@ int main(int argc, char* argv[]) {
     }
 
     InsMem imem = InsMem("Imem", ioDir);
-  //  DataMem dmem_ss = DataMem("SS", ioDir);
-	DataMem dmem_fs = DataMem("FS", ioDir);
+    DataMem dmem_fs = DataMem("FS", ioDir);
+    FiveStageCore FSCore(ioDir, imem, &dmem_fs);
 
-	//SingleStageCore SSCore(ioDir, imem, &dmem_ss);
-	FiveStageCore FSCore(ioDir, imem, &dmem_fs);
-	
-
-    while (1) {
-		// if (!SSCore.halted)
-		// 	SSCore.step();
-
-		if (!FSCore.halted)
-			FSCore.step();
-
-		if (FSCore.halted) //&& FSCore.halted)
-			break;
+    while (!FSCore.halted) {
+        FSCore.step();
     }
 
-
-    // dump SS and FS data mem.
-    //SSCore.ext_dmem->outputDataMem();
     FSCore.ext_dmem->outputDataMem();
-    
 
-	// // dump SS and FS data mem.
-
-	return 0;
+    return 0;
 }
